@@ -18,12 +18,46 @@ from sqlalchemy.schema import DropTable
 from sqlalchemy.ext.compiler import compiles
 
 import scipy.stats as stats
+import matplotlib.pyplot as plt
 
 # This recompiles the DropTable function so that it sends out DROP CASCADE sql code
 # see: https://stackoverflow.com/questions/38678336/sqlalchemy-how-to-implement-drop-table-cascade
 @compiles(DropTable, "postgresql")
 def _compile_drop_table(element, compiler, **kwargs):
     return compiler.visit_drop_table(element) + " CASCADE"
+
+# ------------------------------------------------------------------------------
+# PARAMETERS
+# define table name... I'll probably depricate this.
+tableName = 'gdelt_v2_temp'
+source = "gdelt_v2_api"
+# Regex pattern by which to match GDELT themes in text document (see link below)
+theme_pattern = r""
+# GDELT themes text endpoint
+themes_url = "http://data.gdeltproject.org/api/v2/guides/LOOKUP-GKGTHEMES.TXT"
+# where the plots go...
+path_to_plots = "/Users/Jacobus/Documents/Courses/ind_study_2018_msu/scripts/relationship_mining/output_plots/"
+# Set to True to plot data for each iteration
+plot = True
+
+# will eventually depricate this...
+# list of queries to loop through and build requests for GDELT
+queries = [
+    # 'theme:NATURAL_DISASTER_HURRICANE',
+    # 'theme:TAX_FNCACT_WOMEN',
+    # 'theme:TAX_FNCACT_LEADER',
+    'theme:WB_2670_JOBS',
+    "(women OR woman OR girl OR girls)",
+    # "(man OR men OR boy OR boys)",
+    # "(job OR jobs OR career OR careers)",
+    # "ALL"
+]
+
+path_to_queryies_list = "/Users/Jacobus/Documents/Courses/ind_study_2018_msu/data/themes_under_001P_150n.csv"
+# set to True if you want to define a list of themes from a text file
+use_list = True
+# ------------------------------------------------------------------------------
+
 
 # sqlalchemy definitions
 # NOTE: if a table does not have a primary key, it will not be mapped automatically
@@ -53,51 +87,44 @@ Countries = Base.classes.world_country_polygons
 # Get a session...
 Session = sessionmaker(bind=engine)
 
-# define table name... I'll probably depricate this.
-tableName = 'gdelt_v2_temp'
-source = "gdelt_v2_api"
-
-# Regex pattern by which to match GDELT themes in text document (see link below)
-theme_pattern = r""
-
-# GDELT themes text endpoint
-themes_url = "http://data.gdeltproject.org/api/v2/guides/LOOKUP-GKGTHEMES.TXT"
-
 # request and parse out list of themes that match theme_pattern
 r = requests.get(themes_url)
 total_theme_list = [i.split('\\')[0] for i in str(r.content).split('\\n') if re.search(theme_pattern,i, re.IGNORECASE)]
 
-# create session in order to query themes already done
-session = Session()
+
 
 # check if the linnear_reg_results table exists and, if so, grab all the themes
 # that have been done.
-if engine.dialect.has_table(engine, 'linnear_reg_results'):
-    RegResults = Base.classes.linnear_reg_results
-    done_list = []
-    for regResults in session.query(RegResults).all():
-        done_list.append(str(regResults.query))
+if use_list:
+    # use list
+    with open(path_to_queryies_list, "r") as file:
+        theme_list = [line.strip().strip('"') for line in file]
 else:
-    theme_list = total_theme_list
-session.close()
-
-# create 'todo-list' of themes that have not been done yet.
-theme_list = [t for t in total_theme_list if t not in done_list]
-
-# will eventually depricate this...
-# list of queries to loop through and build requests for GDELT
-queries = [
-    'theme:NATURAL_DISASTER_HURRICANE',
-]
+    if engine.dialect.has_table(engine, 'linnear_reg_results'):
+        # create session in order to query themes already done
+        session = Session()
+        RegResults = Base.classes.linnear_reg_results
+        done_list = []
+        for regResults in session.query(RegResults).all():
+            done_list.append(str(regResults.query))
+        # create 'todo-list' of themes that have not been done yet.
+        theme_list = [t for t in total_theme_list if t not in done_list]
+        session.close()
+    else:
+        theme_list = total_theme_list
 
 # Loop through query list and get data from gdelt
 current = 1
 starttime = datetime.datetime.now()
 print("Started at {}...".format(starttime))
-for query in theme_list:
+for query in queries:
     print("Analyzing theme {} of {}: {}".format(current,len(theme_list),query))
     current+=1
-    url = "https://api.gdeltproject.org/api/v2/geo/geo?query=theme:{}&format=GeoJSON&sortby=Date".format(query)
+    # url = "https://api.gdeltproject.org/api/v2/geo/geo?query=theme:{}&format=GeoJSON&sortby=Date".format(query)
+    if query == "ALL":
+        url = "https://api.gdeltproject.org/api/v2/geo/geo?query=toneabs>0&format=GeoJSON&sortby=Date"
+    else:
+        url = "https://api.gdeltproject.org/api/v2/geo/geo?query={}&format=GeoJSON&sortby=Date".format(query)
     r = requests.get(url)
     if r.status_code == 200:
         try:
@@ -199,8 +226,28 @@ for query in theme_list:
 
     df = pandas.DataFrame.from_dict(results)
 
-    y = df['count']
-    x = df['gdp']
+    # create normalized columns in df
+    def normalize(mean, std, x):
+        z = (x - mean)/std
+        return z
+
+    # import pdb; pdb.set_trace()
+
+    df['gdp_z'] = df['gdp'].apply(lambda x: normalize(df['gdp'].mean(), df['gdp'].std(), x))
+    df['count_z'] = df['count'].apply(lambda x: normalize(df['count'].mean(), df['count'].std(), x))
+
+    if plot:
+        df.plot(x='gdp_z', y='count_z', style='o')
+        plt.title('Article Counts versus GDP: {}'.format(query))
+        plt.xlabel('GDP Normalized')
+        plt.ylabel('Article Count Normalized')
+        plt.savefig("{}.png".format(query))
+
+    # set x and y for regression
+    y = df['count_z']
+    x = df['gdp_z']
+
+    # import pdb; pdb.set_trace()
 
     n_rows = len(y)
     slope, intercept, r_value, p_value, std_err = stats.linregress(x,y)
