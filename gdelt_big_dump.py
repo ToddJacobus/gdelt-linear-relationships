@@ -1,5 +1,6 @@
 # import pdb; pdb.set_trace()
 import requests, zipfile, io, re, csv
+from threading import Condition
 
 def extract_zip(input_zip):
     input_zip = zipfile.ZipFile(input_zip)
@@ -26,12 +27,11 @@ def main():
                     f.write(r.content)
                     extracted = extract_zip(f)
                     for k,v in extracted.items():
-                        data = [re.split(r"\t",l) for l in v.split('\n') if re.search(r"TAX_FNCACT_WOMEN",l)]
+                        data = [re.split(br"\t",l) for l in v.split(b'\n') if re.search(br"TAX_FNCACT_WOMEN",l)]
                         if len(data) > 0:
                             queue[url] = data
                             print("Added result to queue...")
                             # print("Results found: {}".format(len(results.keys())))
-                            # import pdb; pdb.set_trace()
             else:
                 print("Could not connect to server (status code = {}) at {}.".format(r.status_code, url))
         # unzip every gkg file in memory
