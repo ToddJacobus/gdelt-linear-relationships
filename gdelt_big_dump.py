@@ -25,7 +25,7 @@ def createTable(tableMap, engine):
 # -- SQLACHEMY TABLE MAPS ------------------------------------------------------
 Base = declarative_base()
 class Gdelt_v2(Base):
-    __tablename__ = "gdelt_v2_2018"
+    __tablename__ = "gdelt_v2_gkg_2018"
     id = Column(Integer, primary_key=True)
     gkgrecordid = Column(String)
     date = Column(String)
@@ -59,7 +59,6 @@ class ProducerThread(Thread):
                                 f.write(r.content)
                                 extracted = extract_zip(f)
                                 for k,v in extracted.items():
-                                    # TODO: add condition to allow only lines with location data
                                     data = [re.split(br"\t",l) for l in v.split(b'\n') if (re.search(theme_regex.encode('utf-8'),l) and re.split(br"\t",l)[10])]
                                     if len(data) > 0:
                                         queue[url] = data
@@ -110,4 +109,10 @@ if __name__ == '__main__':
 
 
     ProducerThread().start()
+    # NOTE: Multiple producer threads can be started by just instantiating/calling
+    # them, however, duplicate date will be produced.  Need some way of ensuring that
+    # there is no overlap between producers.
+    #   - pass in a date range parameter to each producer.
+    #   - have producers work from a queue and be consumers of that queue.  Another
+    #     producer will feed a bunch of csv urls to that queue.
     ConsumerThread().start()
