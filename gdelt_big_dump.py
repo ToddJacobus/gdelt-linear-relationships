@@ -43,14 +43,10 @@ class ProducerThread(Thread):
         chunk_size = 8096
         bytes_transfered = 0
         with requests.get(ROOT_URL,stream=True) as response:
-        # response = requests.get(ROOT_URL,stream=True)
-        # queue = {}
             while True:
                 for line in response.iter_lines(chunk_size):
-                    # import pdb; pdb.set_trace()
                     file_urls = re.findall(regex,str(line),re.IGNORECASE)
                     bytes_transfered+=chunk_size
-                    # print("bytes transfered: {}".format(bytes_transfered))
                     for url in file_urls:
                         condition.acquire()
                         if len(queue) == MAX_QUEUE:
@@ -64,12 +60,11 @@ class ProducerThread(Thread):
                                 extracted = extract_zip(f)
                                 for k,v in extracted.items():
                                     # TODO: add condition to allow only lines with location data
-                                    data = [re.split(br"\t",l) for l in v.split(b'\n') if re.search(br"TAX_FNCACT_WOMEN",l)]
+                                    data = [re.split(br"\t",l) for l in v.split(b'\n') if (re.search(theme_regex.encode('utf-8'),l) and re.split(br"\t",l)[10])]
                                     if len(data) > 0:
                                         queue[url] = data
                                         condition.notify()
                                         condition.release()
-                                        # print("Results found: {}".format(len(results.keys())))
                         else:
                             print("Could not connect to server (status code = {}) at {}.".format(r.status_code, url))
                     # unzip every gkg file in memory
@@ -85,19 +80,8 @@ class ConsumerThread(Thread):
                 print("Nothing in queue...consumer waiting.")
                 condition.wait()
                 print("Item(s) in queue... continuing.")
-            # map of row schema/indexes
-            # fieldIndex = {
-            #     'gkgrecordid':0,
-            #     'date':1,
-            #     'document_identifier':4,
-            #     'v2_themes':8,
-            #     'v2_locations':10,
-            #     'v2_tone':15
-            # }
             key, value = queue.popitem()
             value = [[i.decode('utf-8','strict') for i in row] for row in value]
-            # data = {k:[] for k in fieldIndex.keys()}
-            # for row in value:
             session = Session()
             try:
                 session.add_all(
@@ -110,20 +94,14 @@ class ConsumerThread(Thread):
             finally:
                 session.close()
 
-
-                # for k,v in fieldIndex:
-                #     data[k].append(row[v])
-            # TODO: do something with the csv url path... make special table?
-
-            # upload data to table?
-            # or just count it and collect counted data...?
-                # data = {key:row[fieldIndex[key]] for key in fieldIndex.keys()}
-
 if __name__ == '__main__':
     queue = {}
     MAX_QUEUE = 10
     condition = Condition()
 
+    # Will match themes in each line of data.
+    # For best results, use the entire theme code.
+    theme_regex = r"TAX_FNCACT_WOMEN"
 
     params = getDbParams(r"/Users/Jacobus/Documents/Database_Management/local_db_creds.json")
     engine = create_engine('postgresql://{}:{}@{}:{}/{}'.format(params['username'],params['password'],params['host'],params['port'],params['database_name']))
