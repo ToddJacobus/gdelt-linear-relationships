@@ -61,6 +61,7 @@ class ProducerThread(Thread):
                                 for k,v in extracted.items():
                                     data = [re.split(br"\t",l) for l in v.split(b'\n') if (re.search(theme_regex.encode('utf-8'),l) and re.split(br"\t",l)[10])]
                                     if len(data) > 0:
+                                        # add datat to the queue
                                         queue[url] = data
                                         condition.notify()
                                         condition.release()
