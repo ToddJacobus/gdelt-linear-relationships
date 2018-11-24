@@ -36,6 +36,7 @@ class Gdelt_v2(Base):
     v2_themes = Column(String)
     v2_locations = Column(String)
     v2_tone = Column(String)
+    country_codes = Column(String)
 
 # -- THREAD CLASSES ------------------------------------------------------------
 
@@ -53,7 +54,6 @@ class UrlProducerThread(Thread):
                     file_urls = re.findall(self.regex,str(line),re.IGNORECASE)
                     for url in file_urls:
                         urlQueue.put(url)
-
 
 class DataProducerThread(Thread):
     def __init__(self,queue, urlQueue, theme_regex):
@@ -95,10 +95,13 @@ class ConsumerThread(Thread):
         while True:
             value = self.queue.get()
             value = [[i.decode('utf-8','strict') for i in row] for row in value]
+            # TODO: parse location from location row
             session = Session()
             try:
                 session.add_all(
-                    [Gdelt_v2(gkgrecordid=row[0],date=row[1],document_identifier=row[4],v2_themes=row[8],v2_locations=row[10],v2_tone=row[15]) for row in value]
+                    [Gdelt_v2(gkgrecordid=row[0],date=row[1],document_identifier=row[4],v2_themes=row[8],v2_locations=row[10],v2_tone=row[15], \
+                    country_codes = ",".join(set([r.split('#')[2] for r in row[10].split(';')])) )
+                    for row in value]
                 )
                 session.commit()
             except:
@@ -121,17 +124,17 @@ def main():
     theme_regex = r"TAX_FNCACT_WOMEN"
     csv_regex = r"http://.*2017\d{10}.*\.gkg\.csv\.zip"
 
-    for i in range(4):
+    for i in range(1):
         u = UrlProducerThread(urlQueue, csv_regex)
         u.setDaemon = True
         u.start()
 
-    for i in range(20):
+    for i in range(1):
         p = DataProducerThread(queue,urlQueue, theme_regex)
         p.setDaemon = True
         p.start()
 
-    for i in range(3):
+    for i in range(1):
         c = ConsumerThread(queue)
         c.setDaemon = True
         c.start()
@@ -148,3 +151,25 @@ if __name__ == '__main__':
     Session = sessionmaker(bind=engine)
 
     main()
+
+
+# TESTING --
+
+# threads: 20, 30, 20
+# time: 2:00.15 - 2:00.03
+# rows: 4435 - 3873
+# rows per min: 2217.5
+# time/1-mil rows: 7.52 hours
+
+# time: 2:00.49
+# rows: 8234
+# threads: 4, 20, 3
+# rows per minute: 3306.83
+# time/1-million rows: 5.04 hours
+
+# threads: 1, 1, 1
+# time: 2:08.10
+# 2.233 min
+# rows: 1706
+# rows per minute: 763.99
+# time/1-million rows: 21.82 hours
