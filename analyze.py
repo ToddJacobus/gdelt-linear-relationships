@@ -56,7 +56,7 @@ class Gdelt_v2(Base):
 # -- THREADING CLASSES ---------------------------------------------------------
 
 class QueryThread(Thread):
-    # consume a list of unique contry codes and query the db with each one,
+    # consume a list of unique country codes and query the db with each one,
     # counting the number of records that have that country code.
     def __init__(self, country_queue, theme, sessionmaker):
         Thread.__init__(self)
@@ -68,8 +68,17 @@ class QueryThread(Thread):
             country = self.country_queue.get()
             session = self.sessionmaker()
             try:
-                query = session.query(Gdelt_v2).filter(Gdelt_v2.country_codes==country, Gdelt_v2.v2_themes==self.theme).count()
-                import pdb; pdb.set_trace()
+                count = session.query(Gdelt_v2).filter(Gdelt_v2.country_codes.like('%{}%'.format(country)), Gdelt_v2.v2_themes.like('%{}%'.format(self.theme))).count()
+                # import pdb; pdb.set_trace()
+                # Upload count to database...
+                count_row = Counts(
+                    location=country,
+                    theme = self.theme,
+                    count = count
+                )
+                session.add(count_row)
+                session.commit()
+
             except:
                 session.rollback()
                 raise
@@ -102,8 +111,8 @@ if __name__ == '__main__':
     try:
         countries = []
         session = Session()
-        rows = [row for row in session.query(Gdelt_v2.country_codes).distinct()]
-        for row in rows: countries.extend(row.split(','))
+        for row in session.query(Gdelt_v2.country_codes).distinct():
+            countries.extend(row[0].split(','))
         countries = set(countries)
     except:
         session.rollback()
