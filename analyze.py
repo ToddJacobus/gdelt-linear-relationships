@@ -84,7 +84,11 @@ class QueryThread(Thread):
                 raise
             finally:
                 session.close()
+
             self.country_queue.task_done()
+            print(self.country_queue.qsize())
+            if self.country_queue.qsize() < 1:
+                return
 
             # count number of records with country code
 
@@ -92,20 +96,25 @@ class QueryThread(Thread):
 def main():
     theme_list = [
         "TAX_FNCACT_WOMEN",
+        'WOMEN',
+        'JOBS'
     ]
     for theme in theme_list:
-        for i in range(1):
+        for i in range(1): # Threads per theme
             q = QueryThread(country_queue, theme, Session)
             q.setDaemon = True
             q.start()
     # Build queue (set) of unique contry codes in entire data set
     # for every theme tested, count records for each unique country
+    country_queue.join()
 
 if __name__ == '__main__':
     country_queue = Queue()
     params = getDbParams(r"/Users/Jacobus/Documents/Database_Management/local_db_creds.json")
     engine = create_engine('postgresql://{}:{}@{}:{}/{}'.format(params['username'],params['password'],params['host'],params['port'],params['database_name']))
     Session = sessionmaker(bind=engine)
+
+    createTable(Counts, engine)
 
     # populate the queue with unique contry codes
     try:
@@ -120,5 +129,4 @@ if __name__ == '__main__':
     finally:
         session.close()
     for c in countries: country_queue.put(c)
-
     main()
