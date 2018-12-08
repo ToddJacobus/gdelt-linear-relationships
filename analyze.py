@@ -2,7 +2,7 @@
 import requests, zipfile, io, re, csv, json
 from threading import Thread, Condition
 from queue import Queue
-import time, random
+import time, random, json
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import *
@@ -91,6 +91,64 @@ class QueryThread(Thread):
                 return
 
             # count number of records with country code
+
+# -- ANALYSIS FUNCTIONS --------------------------------------------------------
+
+def analyze():
+    # SELECT
+
+    df = pandas.DataFrame.from_dict(count_results)
+
+    # create normalized columns in df
+    def normalize(mean, std, x):
+        z = (x - mean)/std
+        return z
+
+    # import pdb; pdb.set_trace()
+
+    df['gdp_z'] = df['gdp'].apply(lambda x: normalize(df['gdp'].mean(), df['gdp'].std(), x))
+    df['count_z'] = df['count'].apply(lambda x: normalize(df['count'].mean(), df['count'].std(), x))
+
+    if plot:
+        df.plot(x='gdp_z', y='count_z', style='o')
+        plt.title('Article Counts versus GDP: {}'.format(query))
+        plt.xlabel('GDP Normalized')
+        plt.ylabel('Article Count Normalized')
+        plt.savefig("{}.png".format(query))
+
+    # set x and y for regression
+    y = df['count_z']
+    x = df['gdp_z']
+
+    # import pdb; pdb.set_trace()
+
+    n_rows = len(y)
+    slope, intercept, r_value, p_value, std_err = stats.linregress(x,y)
+    # print("slope: ", slope)
+    # print("intercept: ", intercept)
+    # print("r_value: ", r_value)
+    # print("p_value: ", p_value)
+    # print("std_err: ", std_err)
+
+    if not engine.dialect.has_table(engine, 'linnear_reg_results'):
+        StatsResults.__table__.create(engine)
+
+    results = StatsResults(
+        query=query,
+        source=source,
+        n_rows=n_rows,
+        slope=slope,
+        intercept=intercept,
+        r_value=r_value,
+        p_value=p_value,
+        std_err=std_err,
+        date=datetime.datetime.now()
+    )
+    session = Session()
+    session.add(results)
+
+    session.commit()
+    session.close()
 
 
 def main():

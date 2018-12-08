@@ -1,5 +1,5 @@
 # import pdb; pdb.set_trace()
-import requests, zipfile, io, re, csv, json
+import requests, zipfile, io, re, csv, json, sys
 from threading import Thread, Condition
 from queue import Queue
 import time, random
@@ -48,12 +48,14 @@ class UrlProducerThread(Thread):
     def run(self):
         ROOT_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt"
         chunk_size = 8096
-        with requests.get(ROOT_URL,stream=True) as response:
-            while True:
-                for line in response.iter_lines(chunk_size):
-                    file_urls = re.findall(self.regex,str(line),re.IGNORECASE)
-                    for url in file_urls:
-                        urlQueue.put(url)
+        while True:
+            with requests.get(ROOT_URL,stream=True) as response:
+            # while True:
+                if response.status_code == 200:
+                    for line in response.iter_lines(chunk_size):
+                        file_urls = re.findall(self.regex,str(line),re.IGNORECASE)
+                        for url in file_urls:
+                            urlQueue.put(url)
 
 class DataProducerThread(Thread):
     def __init__(self,queue, urlQueue, theme_regex):
@@ -80,7 +82,11 @@ class DataProducerThread(Thread):
                         if len(data) > 0:
                             # add datat to the queue
                             self.queue.put(data)
-                            print("Producer finished...")
+                            sys.stdout.write("\rCSV files in queue %i" % self.urlQueue.qsize())
+                            sys.stdout.flush()
+                            # print("CSV files in queue: {}".format(self.urlQueue.qsize()))
+                            self.urlQueue.task_done()
+                            # print("Producer finished...")
             else:
                 print("Could not connect to server (status code = {}) at {}.".format(r.status_code, url))
             # unzip every gkg file in memory
@@ -109,19 +115,19 @@ class ConsumerThread(Thread):
                 raise
             finally:
                 session.close()
-                print("Consumer finished...")
+                # print("Consumer finished...")
                 self.queue.task_done()
 
 # -- MAIN CONTROLLER -----------------------------------------------------------
-
+start = time.time()
 def main():
 
     # global queue
     # global urlQueue
 
-    # Will match themes in each line of data.
+    # Will match ANY specified themes in each line of data.
     # For best results, use the entire theme code.
-    theme_regex = r"TAX_FNCACT_WOMEN"
+    theme_regex = r"TAX_FNCACT_WOMEN|MOVEMENT_WOMENS|GENDER_VIOLENCE"
     csv_regex = r"http://.*2017\d{10}.*\.gkg\.csv\.zip"
 
     for i in range(1):
@@ -129,12 +135,12 @@ def main():
         u.setDaemon = True
         u.start()
 
-    for i in range(1):
+    for i in range(20):
         p = DataProducerThread(queue,urlQueue, theme_regex)
         p.setDaemon = True
         p.start()
 
-    for i in range(1):
+    for i in range(3):
         c = ConsumerThread(queue)
         c.setDaemon = True
         c.start()
@@ -151,6 +157,7 @@ if __name__ == '__main__':
     Session = sessionmaker(bind=engine)
 
     main()
+    # print("Elapsed Time: %s" % (time.time() - start))
 
 
 # TESTING --
